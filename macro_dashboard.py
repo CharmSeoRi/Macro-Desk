@@ -64,7 +64,6 @@ st.markdown("""
     }
 
     /* 📱 모바일 및 📟 태블릿 세로 모드 반응형 그리드 */
-    /* 1. 태블릿 세로 화면 구간 (769px ~ 1024px): 3열로 쾌적하게 분할 */
     @media (min-width: 769px) and (max-width: 1024px) {
         .block-container {
             padding-left: 1.2rem !important;
@@ -82,7 +81,6 @@ st.markdown("""
         }
     }
 
-    /* 2. 스마트폰 모바일 화면 구간 (768px 이하): 2열 카드로 균형 배치 */
     @media (max-width: 768px) {
         .block-container {
             padding-left: 0.6rem !important;
@@ -108,11 +106,20 @@ st.markdown("""
 
 # 모바일 터치 스크롤 방해 금지 Plotly 전역 설정 딕셔너리
 TOUCH_SAFE_CONFIG = {
-    'displayModeBar': False,        # 툴바 아이콘 숨김
-    'scrollZoom': False,            # 터치 핀치/마우스 휠 줌 비활성화
-    'doubleClick': False,           # 더블 터치 오동작 방지
-    'showAxisDragHandles': False,   # 축 드래그 방지
-    'responsive': True              # 화면 크기 변화에 반응
+    'displayModeBar': False,
+    'scrollZoom': False,
+    'doubleClick': False,
+    'showAxisDragHandles': False,
+    'responsive': True
+}
+
+# 정밀 분석을 위해 줌/툴바를 지원하는 인터랙티브 차트 설정
+MACRO_CHART_CONFIG = {
+    'displayModeBar': True,
+    'scrollZoom': False,
+    'displaylogo': False,
+    'modeBarButtonsToRemove': ['lasso2d', 'select2d'],
+    'responsive': True
 }
 
 # ==========================================
@@ -137,7 +144,7 @@ def fetch_yf_current(ticker):
 
 @st.cache_data(ttl=300)
 def fetch_yf_history(ticker, period="3mo"):
-    """히스토리 데이터를 가져옵니다 (기본 3개월)."""
+    """히스토리 데이터를 가져옵니다."""
     try:
         data = yf.Ticker(ticker).history(period=period)
         if not data.empty:
@@ -149,7 +156,7 @@ def fetch_yf_history(ticker, period="3mo"):
 
 @st.cache_data(ttl=300)
 def fetch_fred_series(api_key, series_id, days=1825):
-    """FRED 데이터를 가져옵니다 (기본 5년, 시계열 선택 연동)."""
+    """FRED 데이터를 가져옵니다."""
     if not api_key:
         return pd.Series(dtype=float)
     try:
@@ -157,6 +164,41 @@ def fetch_fred_series(api_key, series_id, days=1825):
         start_date = (datetime.today() - timedelta(days=days)).strftime('%Y-%m-%d')
         data = fred.get_series(series_id, observation_start=start_date)
         return data.dropna()
+    except Exception:
+        return pd.Series(dtype=float)
+
+@st.cache_data(ttl=600)
+def fetch_fed_net_liquidity(api_key, days=1095):
+    """연준 순유동성(Fed Net Liquidity)을 산출합니다.
+    - WALCL (총자산, $Millions)
+    - WTREGEN (재무부 TGA 잔고, $Millions)
+    - RRPONTSYD (역레포 잔고, $Billions -> $Millions 변환: * 1000)
+    - 수식: WALCL - WTREGEN - RRP ($Trillions 단위로 정규화)
+    """
+    if not api_key:
+        return pd.Series(dtype=float)
+    try:
+        # 버퍼 기간을 두어 ffill 전방 보간이 끊기지 않도록 처리
+        walcl = fetch_fred_series(api_key, "WALCL", days=days + 60)
+        tga = fetch_fred_series(api_key, "WTREGEN", days=days + 60)
+        rrp = fetch_fred_series(api_key, "RRPONTSYD", days=days + 60)
+        
+        if walcl.empty or tga.empty or rrp.empty:
+            return pd.Series(dtype=float)
+        
+        # 날짜 인덱스 통합 및 ffill 처리
+        all_dates = walcl.index.union(tga.index).union(rrp.index).sort_values()
+        df = pd.DataFrame(index=all_dates)
+        df['walcl'] = walcl.reindex(all_dates).ffill()
+        df['tga'] = tga.reindex(all_dates).ffill()
+        df['rrp'] = (rrp * 1000.0).reindex(all_dates).ffill()  # $B -> $M 단위 맞춤
+        
+        df = df.dropna()
+        # 최종 수치: 조 달러($Trillions) 단위로 변환
+        net_liq_trillions = (df['walcl'] - df['tga'] - df['rrp']) / 1_000_000.0
+        
+        cutoff = datetime.today() - timedelta(days=days)
+        return net_liq_trillions[net_liq_trillions.index >= pd.Timestamp(cutoff)]
     except Exception:
         return pd.Series(dtype=float)
 
@@ -213,18 +255,19 @@ try:
 except Exception:
     pass
 
-if not fred_api_key:
+# 화면 입력창 노출 없이 Secrets 연동 상태만 안전하게 표시
+if fred_api_key:
+    st.sidebar.success("🔒 FRED API 보안 연결됨")
+else:
     fred_api_key = st.sidebar.text_input(
         "FRED API Key", 
         value="", 
         type="password", 
         help="거시경제 데이터를 불러오려면 FRED API 키를 입력하세요."
     )
-else:
-    st.sidebar.success("🔒 FRED API 보안 연결됨")
 
 st.sidebar.markdown("---")
-st.sidebar.info("⏱️ API 트래픽 제한을 방지하기 위해 데이터는 5분 단위로 자동 캐싱됩니다.")
+st.sidebar.info("⏱️ 트래픽 절약 및 속도 향상을 위해 데이터는 5~10분 단위로 자동 캐싱됩니다.")
 
 # 최상단 헤더: 주요 환율 및 달러 인덱스
 st.markdown('<div class="main-header">글로벌 매크로 대시보드</div>', unsafe_allow_html=True)
@@ -251,9 +294,9 @@ for i, (name, ticker, symbol) in enumerate(fx_tickers):
 st.divider()
 
 # ==========================================
-# 3. BLOCK 1: GLOBAL EQUITIES (글로벌 주가지수)
+# 3. BLOCK 1: GLOBAL EQUITIES & MARKET BREADTH
 # ==========================================
-st.subheader("🌎 블록 1: 글로벌 핵심 주가지수")
+st.subheader("🌎 블록 1: 글로벌 핵심 주가지수 & 시장 건전성 (Breadth)")
 
 all_indices = [
     ("S&P 500", "^GSPC"), 
@@ -281,6 +324,59 @@ for i in range(0, len(valid_indices), 6):
     chunk = valid_indices[i:i+6]
     for j, (name, data) in enumerate(chunk):
         cols[j].metric(label=name, value=f"{data['price']:,.2f}", delta=f"{data['pct_change']:+.2f}%")
+
+st.write("")
+# 신규 지표: 동일가중 vs 시총가중 S&P 500 (RSP / SPY Ratio)
+st.markdown("##### 📊 미국 시장 건전성: 동일가중 vs 시총가중 (RSP / SPY)")
+rsp_hist = fetch_yf_history("RSP", "1y")
+spy_hist = fetch_yf_history("SPY", "1y")
+
+if not rsp_hist.empty and not spy_hist.empty:
+    common_idx = rsp_hist.index.intersection(spy_hist.index)
+    breadth_ratio = (rsp_hist.loc[common_idx] / spy_hist.loc[common_idx]).dropna()
+    
+    if len(breadth_ratio) >= 2:
+        curr_ratio = breadth_ratio.iloc[-1]
+        prev_ratio = breadth_ratio.iloc[-2]
+        ratio_diff = curr_ratio - prev_ratio
+        ratio_pct = (ratio_diff / prev_ratio) * 100
+        
+        # 50일 이동평균을 통한 추세 판정
+        ma50 = breadth_ratio.rolling(window=50).mean()
+        is_expanding = curr_ratio >= ma50.iloc[-1] if not ma50.empty else (curr_ratio >= breadth_ratio.iloc[0])
+        
+        status_label = "시장 건전성 양호 (Breadth 확장)" if is_expanding else "소수 대형주 쏠림 심화 (다이버전스 경계)"
+        status_color = "#00cc96" if is_expanding else "#ef553b"
+        
+        b_col1, b_col2 = st.columns([1, 3])
+        with b_col1:
+            st.metric(
+                label=f"RSP / SPY 비율 [{status_label}]",
+                value=f"{curr_ratio:.4f}",
+                delta=f"{ratio_pct:+.2f}% (전일비)",
+                delta_color="normal" if is_expanding else "inverse"
+            )
+            st.caption("💡 **해설**: 비율 상승 시 중소형주 동반 상승(건전), 하락 시 빅테크 소수 종목만 오르는 착시 장세.")
+        
+        with b_col2:
+            fig_breadth = go.Figure()
+            fig_breadth.add_trace(go.Scatter(
+                x=breadth_ratio.index, y=breadth_ratio.values, mode='lines',
+                name="RSP/SPY Ratio", line=dict(color=status_color, width=2)
+            ))
+            fig_breadth.add_trace(go.Scatter(
+                x=ma50.index, y=ma50.values, mode='lines',
+                name="50일 이동평균", line=dict(color='rgba(255,255,255,0.6)', dash='dash', width=1.5)
+            ))
+            fig_breadth.update_layout(
+                title=dict(text="S&P 500 Breadth: RSP(동일가중) vs SPY(시총가중) 1년 추이", font=dict(size=12, color='#94a3b8')),
+                template="plotly_dark",
+                height=180,
+                margin=dict(l=20, r=20, t=30, b=20),
+                dragmode=False,
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            )
+            st.plotly_chart(fig_breadth, use_container_width=True, config=TOUCH_SAFE_CONFIG)
 
 st.divider()
 
@@ -422,9 +518,9 @@ for i, (name, ticker, symbol) in enumerate(bonds_assets):
 st.divider()
 
 # ==========================================
-# 7. BLOCK 5: COMMODITIES & TERM STRUCTURE
+# 7. BLOCK 5: COMMODITIES & MACRO RATIOS
 # ==========================================
-st.subheader("🛢️ 블록 5: 핵심 원자재 및 기간구조 (Term Structure)")
+st.subheader("🛢️ 블록 5: 핵심 원자재, 기간구조 및 거시 비율 (Macro Ratios)")
 
 st.markdown("##### 1) 핵심 원자재 선물 실시간 가격")
 comm_cols = st.columns(5)
@@ -447,18 +543,16 @@ for i, (name, ticker, symbol) in enumerate(comm_assets):
 
 st.write("")
 
-st.markdown("##### 2) 원자재 기간구조(기울기) 및 상대가치 비율")
+st.markdown("##### 2) 원자재 기간구조(WTI) 및 귀금속 상대가치 비율")
 col3_1, col3_2 = st.columns(2)
 
 with col3_1:
-    # WTI 캘린더 스프레드 프록시: USO(근월물 M1) vs USL(12개월 분산 M6+)
     uso_hist = fetch_yf_history("USO", "1y")
     usl_hist = fetch_yf_history("USL", "1y")
     uso_curr = fetch_yf_current("USO")
     usl_curr = fetch_yf_current("USL")
     
     if not uso_hist.empty and not usl_hist.empty and uso_curr and usl_curr:
-        # 단가 차이에 의한 왜곡을 제거하기 위해 기준시점 정규화(100 기준 상대 수익률 스프레드) 산출
         uso_norm = (uso_hist / uso_hist.iloc[0]) * 100
         usl_norm = (usl_hist / usl_hist.iloc[0]) * 100
         spread_series = uso_norm - usl_norm
@@ -478,7 +572,6 @@ with col3_1:
             delta_color="normal" if is_backwardation else "inverse"
         )
         
-        # 0선 기준 면적 차트 시각화
         fig_oil = go.Figure()
         fig_oil.add_trace(go.Scatter(
             x=spread_series.index, 
@@ -518,11 +611,64 @@ with col3_2:
         fig_metals.update_layout(
             title=f"귀금속 낙수효과: 금 / 팔라듐 비율 (현재: {ratio.iloc[-1]:.2f})",
             template="plotly_dark", 
-            height=230, 
-            margin=dict(l=20, r=40, t=40, b=20),
+            height=200, 
+            margin=dict(l=20, r=40, t=30, b=20),
             dragmode=False
         )
         st.plotly_chart(fig_metals, use_container_width=True, config=TOUCH_SAFE_CONFIG)
+
+st.write("")
+
+# 신규 지표: 구리 / 금 비율 (Copper / Gold Ratio * 1000) vs 미 10년물 국채 금리
+st.markdown("##### 3) 글로벌 경기 풍향계: 구리 / 금 비율 vs 미국 10년물 국채 금리")
+hg_hist = fetch_yf_history("HG=F", "1y")
+gc_hist = fetch_yf_history("GC=F", "1y")
+tnx_hist = fetch_yf_history("^TNX", "1y")
+
+if not hg_hist.empty and not gc_hist.empty:
+    cg_idx = hg_hist.index.intersection(gc_hist.index)
+    cg_ratio = ((hg_hist.loc[cg_idx] / gc_hist.loc[cg_idx]) * 1000.0).dropna()
+    
+    if len(cg_ratio) >= 2:
+        curr_cg = cg_ratio.iloc[-1]
+        prev_cg = cg_ratio.iloc[-2]
+        cg_pct = ((curr_cg - prev_cg) / prev_cg) * 100
+        
+        c_col1, c_col2 = st.columns([1, 3])
+        with c_col1:
+            st.metric(
+                label="구리 / 금 비율 (HG/GC × 1,000)",
+                value=f"{curr_cg:.3f}",
+                delta=f"{cg_pct:+.2f}% (전일비)"
+            )
+            st.caption("💡 **매크로 시그널**: 비율 상승은 글로벌 경기 회복 및 금리 상승 압력을, 하락은 경기 둔화 및 안전자산 선호를 의미합니다.")
+        
+        with c_col2:
+            fig_cg = go.Figure()
+            # 좌측 축: 구리/금 비율
+            fig_cg.add_trace(go.Scatter(
+                x=cg_ratio.index, y=cg_ratio.values, mode='lines',
+                name="구리/금 비율 (좌축)", line=dict(color='#fca311', width=2)
+            ))
+            # 우측 보조축: 미 10년물 국채 금리(^TNX)
+            if not tnx_hist.empty:
+                fig_cg.add_trace(go.Scatter(
+                    x=tnx_hist.index, y=tnx_hist.values, mode='lines',
+                    name="미 10년물 금리 (우축, %)", line=dict(color='#38bdf8', width=1.5, dash='dot'),
+                    yaxis="y2"
+                ))
+            
+            fig_cg.update_layout(
+                title=dict(text="Copper / Gold Ratio vs US 10Y Yield (1년 동행성 비교)", font=dict(size=12, color='#94a3b8')),
+                template="plotly_dark",
+                height=220,
+                margin=dict(l=20, r=40, t=30, b=20),
+                dragmode=False,
+                yaxis=dict(title="Cu/Au × 1,000", tickfont=dict(color='#fca311')),
+                yaxis2=dict(title="10Y Yield (%)", tickfont=dict(color='#38bdf8'), overlaying="y", side="right", showgrid=False),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            )
+            st.plotly_chart(fig_cg, use_container_width=True, config=TOUCH_SAFE_CONFIG)
 
 st.divider()
 
@@ -590,11 +736,11 @@ with col4_2:
 st.divider()
 
 # ==========================================
-# 9. BLOCK 7: MACRO TRIGGERS (시스템 리스크)
+# 9. BLOCK 7: MACRO TRIGGERS, LIQUIDITY & VOLATILITY
 # ==========================================
-st.subheader("🚨 블록 7: 매크로 시스템 리스크 및 이상 변동성 모니터")
+st.subheader("🚨 블록 7: 매크로 시스템 리스크, 유동성 및 이상 변동성")
 
-# 시계열 기간 선택기 (과거 금융위기 및 사이클 탐색)
+# 시계열 기간 선택기
 period_col, _ = st.columns([3, 1])
 with period_col:
     period_choice = st.radio(
@@ -613,23 +759,53 @@ days_map = {
 }
 selected_days = days_map.get(period_choice, 1825)
 
-# 정밀 분석을 위해 줌/툴바를 지원하는 인터랙티브 차트 설정
-MACRO_CHART_CONFIG = {
-    'displayModeBar': True,
-    'scrollZoom': False,
-    'displaylogo': False,
-    'modeBarButtonsToRemove': ['lasso2d', 'select2d'],
-    'responsive': True
-}
+# A) 신규 지표: 연준 순유동성 (Fed Net Liquidity)
+st.markdown("##### 💧 1) 미국 연준 순유동성 (Fed Net Liquidity = WALCL - TGA - RRP)")
+net_liq_series = fetch_fed_net_liquidity(fred_api_key, days=selected_days)
 
-col5_1, col5_2, col5_3 = st.columns([1.5, 1.5, 1])
+if not net_liq_series.empty:
+    curr_liq = net_liq_series.iloc[-1]
+    prev_liq = net_liq_series.iloc[-2] if len(net_liq_series) >= 2 else curr_liq
+    liq_change = curr_liq - prev_liq
+    
+    liq_m_col1, liq_m_col2 = st.columns([1, 3])
+    with liq_m_col1:
+        st.metric(
+            label="현재 연준 순유동성 ($Trillion)",
+            value=f"${curr_liq:.3f} T",
+            delta=f"{liq_change * 1000.0:+.1f} B (직전 보고서 대비)",
+            delta_color="normal"
+        )
+        st.caption("💡 **산출 공식**: 연준 총자산(WALCL) - 재무부 잔고(TGA) - 역레포 잔고(RRP). 자산시장 유동성의 펀더멘털 엔진입니다.")
+    
+    with liq_m_col2:
+        fig_liq = go.Figure()
+        fig_liq.add_trace(go.Scatter(
+            x=net_liq_series.index, y=net_liq_series.values, mode='lines',
+            name="Fed Net Liquidity ($T)", line=dict(color='#06b6d4', width=2),
+            fill='tozeroy', fillcolor='rgba(6, 182, 212, 0.1)'
+        ))
+        fig_liq.update_layout(
+            title=dict(text="Federal Reserve Net Liquidity ($ Trillions)", font=dict(size=12, color='#94a3b8')),
+            template="plotly_dark",
+            height=200,
+            margin=dict(l=20, r=20, t=30, b=20)
+        )
+        st.plotly_chart(fig_liq, use_container_width=True, config=MACRO_CHART_CONFIG)
+else:
+    st.info("연준 순유동성 데이터를 불러오려면 FRED API 키가 필요합니다.")
+
+st.write("")
+
+# B) 하이일드 스프레드 & 장단기 금리차
+st.markdown("##### 🏛️ 2) 신용 스프레드 및 장단기 금리 역전 모니터")
+col5_1, col5_2 = st.columns(2)
 
 with col5_1:
     hy_spread = fetch_fred_series(fred_api_key, "BAMLH0A0HYM2", days=selected_days)
     if not hy_spread.empty:
         current_hy = hy_spread.iloc[-1]
         fig_hy = go.Figure()
-        
         fig_hy.add_trace(go.Scatter(
             x=hy_spread.index, y=hy_spread.values, mode='lines', 
             name="HY Spread", line=dict(color='#00cc96', width=1.8)
@@ -638,8 +814,8 @@ with col5_1:
         fig_hy.update_layout(
             title=f"미국 하이일드 스프레드 (현재: {current_hy:.2f}%)", 
             template="plotly_dark", 
-            height=300, 
-            margin=dict(l=20, r=20, t=40, b=20)
+            height=260, 
+            margin=dict(l=20, r=20, t=35, b=20)
         )
         if current_hy >= 5.0:
             st.error(f"⚠️ 하이일드 스프레드 경고: {current_hy:.2f}%")
@@ -664,24 +840,76 @@ with col5_2:
         fig_yield.update_layout(
             title=f"미국 장단기 금리차 10Y-2Y (현재: {current_spread:.2f}%)", 
             template="plotly_dark", 
-            height=300, 
-            margin=dict(l=20, r=20, t=40, b=20)
+            height=260, 
+            margin=dict(l=20, r=20, t=35, b=20)
         )
         st.plotly_chart(fig_yield, use_container_width=True, config=MACRO_CHART_CONFIG)
     else:
         st.info("FRED API 키가 필요합니다.")
 
-with col5_3:
-    st.markdown("##### VIX 및 이상 변동성 지표")
+st.write("")
+
+# C) 이상 변동성 & 신규 지표: MOVE / VIX Ratio
+st.markdown("##### ⚡ 3) 크로스에셋 변동성 괴리 및 스트레스: MOVE / VIX Ratio")
+v_col1, v_col2 = st.columns([1.2, 2.8])
+
+with v_col1:
     vix = fetch_yf_current("^VIX")
     vix1d = fetch_yf_current("^VIX1D")
     skew = fetch_yf_current("^SKEW")
+    move_curr = fetch_yf_current("^MOVE")
     
     if vix:
-        st.metric(label="VIX (30일 변동성)", value=f"{vix['price']:.2f}", delta=f"{vix['pct_change']:+.2f}%", delta_color="inverse")
+        st.metric(label="VIX (주식 30일 변동성)", value=f"{vix['price']:.2f}", delta=f"{vix['pct_change']:+.2f}%", delta_color="inverse")
+    if move_curr:
+        st.metric(label="MOVE 지수 (채권 변동성)", value=f"{move_curr['price']:.2f}", delta=f"{move_curr['pct_change']:+.2f}%", delta_color="inverse")
     if vix1d:
-        st.metric(label="VIX1D (1일 당일 변동성)", value=f"{vix1d['price']:.2f}", delta=f"{vix1d['pct_change']:+.2f}%", delta_color="inverse")
+        st.metric(label="VIX1D (1일 초단기 변동성)", value=f"{vix1d['price']:.2f}", delta=f"{vix1d['pct_change']:+.2f}%", delta_color="inverse")
     if skew:
-        st.metric(label="SKEW (블랙스완 방어 비용)", value=f"{skew['price']:.2f}", delta=f"{skew['pct_change']:+.2f}%", delta_color="inverse")
+        st.metric(label="SKEW (꼬리위험 방어 비용)", value=f"{skew['price']:.2f}", delta=f"{skew['pct_change']:+.2f}%", delta_color="inverse")
+
+with v_col2:
+    move_hist = fetch_yf_history("^MOVE", "1y")
+    vix_hist = fetch_yf_history("^VIX", "1y")
+    
+    if not move_hist.empty and not vix_hist.empty:
+        mv_idx = move_hist.index.intersection(vix_hist.index)
+        mv_ratio = (move_hist.loc[mv_idx] / vix_hist.loc[mv_idx]).dropna()
+        
+        if len(mv_ratio) >= 2:
+            curr_mv = mv_ratio.iloc[-1]
+            prev_mv = mv_ratio.iloc[-2]
+            mv_diff = curr_mv - prev_mv
+            
+            # MOVE/VIX가 6.0 또는 6.5를 초과하면 채권 시장 대비 주식 시장의 방심(경계)
+            is_complacent = curr_mv >= 6.0
+            status_mv = "채권 공포 대비 주식 방심 (괴리 확대 경계)" if is_complacent else "정상 크로스에셋 변동성 밴드"
+            
+            st.metric(
+                label=f"MOVE / VIX 비율 [{status_mv}]",
+                value=f"{curr_mv:.2f}",
+                delta=f"{mv_diff:+.2f} pt 전일비",
+                delta_color="inverse" if is_complacent else "off"
+            )
+            
+            fig_mv = go.Figure()
+            fig_mv.add_trace(go.Scatter(
+                x=mv_ratio.index, y=mv_ratio.values, mode='lines',
+                name="MOVE/VIX Ratio", line=dict(color='#e11d48' if is_complacent else '#a855f7', width=2)
+            ))
+            fig_mv.add_hline(
+                y=6.0, line_dash="dash", line_color="#ef4444",
+                annotation_text="방심 임계선 (6.0 pt)", annotation_position="top left"
+            )
+            fig_mv.update_layout(
+                title=dict(text="ICE BofA MOVE / CBOE VIX Ratio (1년 추이)", font=dict(size=12, color='#94a3b8')),
+                template="plotly_dark",
+                height=220,
+                margin=dict(l=20, r=20, t=30, b=20),
+                dragmode=False
+            )
+            st.plotly_chart(fig_mv, use_container_width=True, config=TOUCH_SAFE_CONFIG)
+    else:
+        st.info("MOVE / VIX 시계열 데이터를 불러오는 중입니다.")
 
 st.caption("🚀 데이터 소스: yfinance, FRED, Binance REST API | 1인 FICC 데스크 전용")
