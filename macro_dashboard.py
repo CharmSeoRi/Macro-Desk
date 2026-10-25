@@ -14,62 +14,83 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 커스텀 CSS를 통한 UI 다듬기 (모바일 반응형 및 다크 콕핏 스타일)
+# 커스텀 CSS를 통한 UI 다듬기 (태블릿 세로 및 모바일 반응형 완벽 대응)
 st.markdown("""
 <style>
     /* 기본 여백 및 헤더 최적화 */
     .block-container {
-        padding-top: 1.8rem !important;
+        padding-top: 1.5rem !important;
         padding-bottom: 2.5rem !important;
     }
     .main-header {
-        font-size: clamp(1.4rem, 4vw, 2.2rem);
+        font-size: clamp(1.3rem, 3.5vw, 2.2rem);
         font-weight: 700;
         color: #fca311;
-        margin-bottom: 15px;
+        margin-bottom: 12px;
         letter-spacing: -0.5px;
     }
-    /* 메트릭 카드 전용 스타일 (FICC 단말기 느낌) */
+    /* 메트릭 카드 전용 스타일 */
     [data-testid="stMetric"] {
-        background-color: rgba(128, 128, 128, 0.05); /* 라이트/다크 모드 범용 반투명 배경 */
+        background-color: rgba(128, 128, 128, 0.05);
         border: 1px solid rgba(128, 128, 128, 0.2);
         border-radius: 8px;
-        padding: 10px 14px;0
+        padding: 8px 12px;
         box-shadow: none; 
         transition: all 0.2s ease-in-out;
+        width: 100% !important;
+        box-sizing: border-box !important;
     }
     [data-testid="stMetric"]:hover {
         border-color: #fca311;
         background-color: rgba(128, 128, 128, 0.1);
     }
     [data-testid="stMetricLabel"] {
-        font-size: clamp(0.72rem, 2vw, 0.85rem) !important;
+        font-size: clamp(0.72rem, 1.8vw, 0.85rem) !important;
         font-weight: 600 !important;
-        /* 색상 강제 지정 제거 - 테마 자동 적응 */
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
     }
     [data-testid="stMetricValue"] {
-        font-size: clamp(1.05rem, 2.8vw, 1.45rem) !important;
+        font-size: clamp(0.95rem, 2.4vw, 1.35rem) !important;
         font-weight: 700 !important;
-        /* 색상 강제 지정 제거 - 테마 자동 적응 */
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
-    /* 등락률(Delta) 가독성 극대화 */
     [data-testid="stMetricDelta"] div {
         font-weight: 800 !important; 
-        font-size: clamp(0.75rem, 2vw, 0.85rem) !important;
+        font-size: clamp(0.72rem, 1.8vw, 0.82rem) !important;
     }
 
-    /* 📱 모바일 화면 (폭 768px 이하) 전용 반응형 그리드 */
+    /* 📱 모바일 및 📟 태블릿 세로 모드 반응형 그리드 */
+    /* 1. 태블릿 세로 화면 구간 (769px ~ 1024px): 3열로 쾌적하게 분할 */
+    @media (min-width: 769px) and (max-width: 1024px) {
+        .block-container {
+            padding-left: 1.2rem !important;
+            padding-right: 1.2rem !important;
+        }
+        [data-testid="stHorizontalBlock"] {
+            display: flex !important;
+            flex-wrap: wrap !important;
+            gap: 10px !important;
+        }
+        [data-testid="column"] {
+            min-width: calc(33.333% - 10px) !important;
+            flex: 1 1 calc(33.333% - 10px) !important;
+            padding: 0 !important;
+        }
+    }
+
+    /* 2. 스마트폰 모바일 화면 구간 (768px 이하): 2열 카드로 균형 배치 */
     @media (max-width: 768px) {
         .block-container {
             padding-left: 0.6rem !important;
             padding-right: 0.6rem !important;
-            padding-top: 1.0rem !important;
+            padding-top: 0.8rem !important;
         }
-        /* 컬럼들이 가로로 찌그러지지 않고 모바일 2열 카드로 자동 배치 */
         [data-testid="stHorizontalBlock"] {
+            display: flex !important;
             flex-wrap: wrap !important;
             gap: 8px !important;
         }
@@ -78,13 +99,21 @@ st.markdown("""
             flex: 1 1 calc(50% - 6px) !important;
             padding: 0 !important;
         }
-        /* 차트 컨테이너는 모바일에서 100% 전폭 사용 */
         .stPlotlyChart {
             min-width: 100% !important;
         }
     }
 </style>
 """, unsafe_allow_html=True)
+
+# 모바일 터치 스크롤 방해 금지 Plotly 전역 설정 딕셔너리
+TOUCH_SAFE_CONFIG = {
+    'displayModeBar': False,        # 툴바 아이콘 숨김
+    'scrollZoom': False,            # 터치 핀치/마우스 휠 줌 비활성화
+    'doubleClick': False,           # 더블 터치 오동작 방지
+    'showAxisDragHandles': False,   # 축 드래그 방지
+    'responsive': True              # 화면 크기 변화에 반응
+}
 
 # ==========================================
 # 1. DATA FETCHING FUNCTIONS (Cached & Robust)
@@ -119,25 +148,21 @@ def fetch_yf_history(ticker, period="3mo"):
         return pd.Series(dtype=float)
 
 @st.cache_data(ttl=300)
-def fetch_fred_series(api_key, series_id, days=365):
-    """FRED 데이터를 가져옵니다."""
+def fetch_fred_series(api_key, series_id, days=1825):
+    """FRED 데이터를 가져옵니다 (기본 5년, 시계열 선택 연동)."""
     if not api_key:
         return pd.Series(dtype=float)
     try:
         fred = Fred(api_key=api_key)
         start_date = (datetime.today() - timedelta(days=days)).strftime('%Y-%m-%d')
         data = fred.get_series(series_id, observation_start=start_date)
-        return data
+        return data.dropna()
     except Exception:
         return pd.Series(dtype=float)
 
 @st.cache_data(ttl=300)
 def fetch_crypto_ticker(symbol_binance, symbol_yf):
-    """
-    암호화폐 시세를 다중 백엔드(Binance Vision / Binance US / yfinance)로 수집합니다.
-    AWS 미국 클라우드 서버의 지역 차단(HTTP 451)을 우회합니다.
-    """
-    # 1차 시도: Binance Public Data Vision (공용 마켓 데이터 전용 미러)
+    """암호화폐 시세를 다중 백엔드로 수집합니다."""
     try:
         url = f"https://data-api.binance.vision/api/v3/ticker/24hr?symbol={symbol_binance}"
         resp = requests.get(url, timeout=3, headers={"User-Agent": "Mozilla/5.0"})
@@ -151,7 +176,6 @@ def fetch_crypto_ticker(symbol_binance, symbol_yf):
     except Exception:
         pass
 
-    # 2차 시도: Binance US API
     try:
         url = f"https://api.binance.us/api/v3/ticker/24hr?symbol={symbol_binance}"
         resp = requests.get(url, timeout=3, headers={"User-Agent": "Mozilla/5.0"})
@@ -165,7 +189,6 @@ def fetch_crypto_ticker(symbol_binance, symbol_yf):
     except Exception:
         pass
 
-    # 3차 백업: yfinance
     try:
         yf_data = fetch_yf_current(symbol_yf)
         if yf_data:
@@ -183,22 +206,24 @@ def fetch_crypto_ticker(symbol_binance, symbol_yf):
 # ==========================================
 st.sidebar.title("⚙️ 데스크 설정")
 
-default_api_key = ""
+fred_api_key = ""
 try:
     if "FRED_API_KEY" in st.secrets:
-        default_api_key = st.secrets["FRED_API_KEY"]
+        fred_api_key = st.secrets["FRED_API_KEY"]
 except Exception:
     pass
 
-fred_api_key = st.sidebar.text_input(
-    "FRED API Key", 
-    value=default_api_key, 
-    type="password", 
-    help="거시경제 데이터를 불러오려면 FRED API 키를 입력하세요."
-)
-
+# Secrets가 없을 경우를 대비한 사이드바 백업 입력 지원
 if not fred_api_key:
-    st.sidebar.warning("하단 블록 7(매크로 시스템 리스크)을 로드하려면 FRED API 키가 필요합니다.")
+    fred_api_key = st.sidebar.text_input(
+        "FRED API Key", 
+        value="", 
+        type="password", 
+        help="거시경제 데이터를 불러오려면 FRED API 키를 입력하세요."
+    )
+else:
+    st.sidebar.success("🔒 FRED API 자동 연동 완료")
+
 st.sidebar.markdown("---")
 st.sidebar.info("⏱️ API 트래픽 제한을 방지하기 위해 데이터는 5분 단위로 자동 캐싱됩니다.")
 
@@ -246,14 +271,12 @@ all_indices = [
     ("닛케이 225", "^N225")
 ]
 
-# API 호출에 성공한 데이터만 순서대로 수집 (이빨 빠짐 방지)
 valid_indices = []
 for name, ticker in all_indices:
     data = fetch_yf_current(ticker)
     if data:
         valid_indices.append((name, data))
 
-# 6개씩 묶어서 빈칸 없이 차례대로 화면에 렌더링
 for i in range(0, len(valid_indices), 6):
     cols = st.columns(6)
     chunk = valid_indices[i:i+6]
@@ -276,7 +299,8 @@ def plot_sparkline(ticker, title, period="1mo"):
     
     fig = go.Figure(go.Scatter(
         x=hist.index, y=hist.values, mode='lines', 
-        line=dict(color=color, width=2)
+        line=dict(color=color, width=2),
+        hoverinfo='x+y'
     ))
     
     y_min, y_max = hist.min(), hist.max()
@@ -295,7 +319,8 @@ def plot_sparkline(ticker, title, period="1mo"):
         ), 
         plot_bgcolor='rgba(0,0,0,0)',
         paper_bgcolor='rgba(0,0,0,0)',
-        showlegend=False
+        showlegend=False,
+        dragmode=False  # 터치 드래그 잠금 (스크롤 끊김 방지)
     )
     return fig
 
@@ -314,46 +339,59 @@ for i, (name, ticker) in enumerate(futures):
             st.metric(label=name, value=f"{data['price']:,.2f}", delta=f"{data['pct_change']:+.2f}%")
             fig = plot_sparkline(ticker, "최근 1개월 추세")
             if fig:
-                st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+                st.plotly_chart(fig, use_container_width=True, config=TOUCH_SAFE_CONFIG)
 
 st.divider()
 
 # ==========================================
-# 5. BLOCK 3: BASIS MONITOR (현선물 베이시스)
+# 5. BLOCK 3: BASIS MONITOR (현선물 베이시스 당일 수치)
 # ==========================================
-st.subheader("📉 블록 3: 현선물 베이시스 모니터 (선물 - 현물)")
+st.subheader("📉 블록 3: 현선물 베이시스 (실시간 당일 수치)")
 
-col2_1, col2_2 = st.columns(2)
+spx_spot = fetch_yf_current("^GSPC")
+es_fut = fetch_yf_current("ES=F")
+ndx_spot = fetch_yf_current("^NDX")
+nq_fut = fetch_yf_current("NQ=F")
 
-def plot_basis(spot_ticker, fut_ticker, title):
-    spot_hist = fetch_yf_history(spot_ticker, "1mo")
-    fut_hist = fetch_yf_history(fut_ticker, "1mo")
-    
-    if not spot_hist.empty and not fut_hist.empty:
-        df = pd.concat([spot_hist, fut_hist], axis=1).dropna()
-        df.columns = ['Spot', 'Futures']
-        df['Basis'] = df['Futures'] - df['Spot']
-        
-        colors = ['#00cc96' if val >= 0 else '#ef553b' for val in df['Basis']]
-        
-        fig = go.Figure()
-        fig.add_trace(go.Bar(x=df.index, y=df['Basis'], marker_color=colors, name="Basis"))
-        fig.update_layout(
-            title=f"{title} 베이시스 (현재: {df['Basis'].iloc[-1]:.2f})",
-            template="plotly_dark", height=150, margin=dict(l=20, r=20, t=40, b=20)
+col_b1, col_b2, col_b3, col_b4 = st.columns(4)
+
+if spx_spot and es_fut:
+    spx_basis = es_fut['price'] - spx_spot['price']
+    spx_basis_pct = (spx_basis / spx_spot['price']) * 100
+    spx_status = "콘탱고 (정상)" if spx_basis >= 0 else "백워데이션 (경계)"
+    with col_b1:
+        st.metric(
+            label=f"S&P 500 베이시스 ({spx_status})",
+            value=f"{spx_basis:+.2f} pt",
+            delta=f"{spx_basis_pct:+.2f}%",
+            delta_color="normal" if spx_basis >= 0 else "inverse"
         )
-        return fig
-    return None
+    with col_b2:
+        st.metric(
+            label="S&P 500 선물(ES) vs 현물",
+            value=f"ES: {es_fut['price']:,.2f}",
+            delta=f"현물: {spx_spot['price']:,.2f}",
+            delta_color="off"
+        )
 
-with col2_1:
-    fig_spx = plot_basis("^GSPC", "ES=F", "S&P 500 (선물 ES - 현물 SPX)")
-    if fig_spx:
-        st.plotly_chart(fig_spx, use_container_width=True)
-
-with col2_2:
-    fig_ndx = plot_basis("^NDX", "NQ=F", "나스닥 100 (선물 NQ - 현물 NDX)")
-    if fig_ndx:
-        st.plotly_chart(fig_ndx, use_container_width=True)
+if ndx_spot and nq_fut:
+    ndx_basis = nq_fut['price'] - ndx_spot['price']
+    ndx_basis_pct = (ndx_basis / ndx_spot['price']) * 100
+    ndx_status = "콘탱고 (정상)" if ndx_basis >= 0 else "백워데이션 (경계)"
+    with col_b3:
+        st.metric(
+            label=f"나스닥 100 베이시스 ({ndx_status})",
+            value=f"{ndx_basis:+.2f} pt",
+            delta=f"{ndx_basis_pct:+.2f}%",
+            delta_color="normal" if ndx_basis >= 0 else "inverse"
+        )
+    with col_b4:
+        st.metric(
+            label="나스닥 100 선물(NQ) vs 현물",
+            value=f"NQ: {nq_fut['price']:,.2f}",
+            delta=f"현물: {ndx_spot['price']:,.2f}",
+            delta_color="off"
+        )
 
 st.divider()
 
@@ -426,9 +464,12 @@ with col3_1:
         fig_eng.add_hline(y=energy_spread.mean(), line_dash="dot", line_color="gray", annotation_text="3개월 평균선")
         fig_eng.update_layout(
             title=f"에너지 스프레드: 브렌트유 - WTI (현재: ${energy_spread.iloc[-1]:.2f})",
-            template="plotly_dark", height=150, margin=dict(l=20, r=40, t=40, b=20)
+            template="plotly_dark", 
+            height=160, 
+            margin=dict(l=20, r=40, t=40, b=20),
+            dragmode=False
         )
-        st.plotly_chart(fig_eng, use_container_width=True)
+        st.plotly_chart(fig_eng, use_container_width=True, config=TOUCH_SAFE_CONFIG)
 
 with col3_2:
     gc = fetch_yf_history("GC=F", "6mo")
@@ -441,9 +482,12 @@ with col3_2:
         fig_metals.add_trace(go.Scatter(x=ma60.index, y=ma60.values, mode='lines', name="60일 이동평균", line=dict(color='white', dash='dash')))
         fig_metals.update_layout(
             title=f"귀금속 낙수효과: 금 / 팔라듐 비율 (현재: {ratio.iloc[-1]:.2f})",
-            template="plotly_dark", height=150, margin=dict(l=20, r=40, t=40, b=20)
+            template="plotly_dark", 
+            height=160, 
+            margin=dict(l=20, r=40, t=40, b=20),
+            dragmode=False
         )
-        st.plotly_chart(fig_metals, use_container_width=True)
+        st.plotly_chart(fig_metals, use_container_width=True, config=TOUCH_SAFE_CONFIG)
 
 st.divider()
 
@@ -484,9 +528,10 @@ with col4_1:
         fig_gauge.update_layout(
             template="plotly_dark", 
             height=180, 
-            margin=dict(l=15, r=15, t=25, b=15)
+            margin=dict(l=15, r=15, t=25, b=15),
+            dragmode=False
         )
-        st.plotly_chart(fig_gauge, use_container_width=True, config={'displayModeBar': False, 'responsive': True})
+        st.plotly_chart(fig_gauge, use_container_width=True, config=TOUCH_SAFE_CONFIG)
     else:
         st.info("암호화폐 괴리율 지표를 산출 중입니다.")
 
@@ -514,32 +559,62 @@ st.divider()
 # ==========================================
 st.subheader("🚨 블록 7: 매크로 시스템 리스크 및 이상 변동성 모니터")
 
+# 시계열 기간 선택기 (과거 금융위기 및 사이클 탐색)
+period_col, _ = st.columns([3, 1])
+with period_col:
+    period_choice = st.radio(
+        "📅 거시경제 시계열 조회 기간",
+        ["1년", "3년", "5년 (기본)", "10년", "전체 (1996년~)"],
+        index=2,
+        horizontal=True
+    )
+
+days_map = {
+    "1년": 365,
+    "3년": 365 * 3,
+    "5년 (기본)": 365 * 5,
+    "10년": 365 * 10,
+    "전체 (1996년~)": 365 * 30
+}
+selected_days = days_map.get(period_choice, 1825)
+
+# 정밀 분석을 위해 줌/툴바를 지원하는 인터랙티브 차트 설정
+MACRO_CHART_CONFIG = {
+    'displayModeBar': True,
+    'scrollZoom': False,  # 브라우저 스크롤 멈칫거림 방지
+    'displaylogo': False,
+    'modeBarButtonsToRemove': ['lasso2d', 'select2d'],
+    'responsive': True
+}
+
 col5_1, col5_2, col5_3 = st.columns([1.5, 1.5, 1])
 
 with col5_1:
-    hy_spread = fetch_fred_series(fred_api_key, "BAMLH0A0HYM2", days=365)
+    hy_spread = fetch_fred_series(fred_api_key, "BAMLH0A0HYM2", days=selected_days)
     if not hy_spread.empty:
         current_hy = hy_spread.iloc[-1]
         fig_hy = go.Figure()
         
         fig_hy.add_trace(go.Scatter(
             x=hy_spread.index, y=hy_spread.values, mode='lines', 
-            name="HY Spread", line=dict(color='#00cc96', width=2)
+            name="HY Spread", line=dict(color='#00cc96', width=1.8)
         ))
         fig_hy.add_hline(y=5.0, line_dash="dash", line_color="red", annotation_text="위험 경계선 (5.0%)")
         fig_hy.update_layout(
             title=f"미국 하이일드 스프레드 (현재: {current_hy:.2f}%)", 
-            template="plotly_dark", height=300, margin=dict(l=20, r=20, t=40, b=20)
+            template="plotly_dark", 
+            height=300, 
+            margin=dict(l=20, r=20, t=40, b=20)
         )
         if current_hy >= 5.0:
             st.error(f"⚠️ 하이일드 스프레드 경고: {current_hy:.2f}%")
-        st.plotly_chart(fig_hy, use_container_width=True)
+        st.plotly_chart(fig_hy, use_container_width=True, config=MACRO_CHART_CONFIG)
     else:
         st.info("FRED API 키가 필요합니다.")
 
 with col5_2:
-    dgs10 = fetch_fred_series(fred_api_key, "DGS10", days=365)
-    dgs2 = fetch_fred_series(fred_api_key, "DGS2", days=365)
+    dgs10 = fetch_fred_series(fred_api_key, "DGS10", days=selected_days)
+    dgs2 = fetch_fred_series(fred_api_key, "DGS2", days=selected_days)
     
     if not dgs10.empty and not dgs2.empty:
         spread_10_2 = (dgs10 - dgs2).dropna()
@@ -548,14 +623,16 @@ with col5_2:
         fig_yield = go.Figure()
         fig_yield.add_trace(go.Scatter(
             x=spread_10_2.index, y=spread_10_2.values, mode='lines', 
-            name="10Y-2Y", line=dict(color='#636efa', width=2), fill='tozeroy'
+            name="10Y-2Y", line=dict(color='#636efa', width=1.8), fill='tozeroy'
         ))
-        fig_yield.add_hline(y=0.0, line_width=2, line_color="white", annotation_text="역전 기준선")
+        fig_yield.add_hline(y=0.0, line_width=1.5, line_color="white", annotation_text="역전 기준선")
         fig_yield.update_layout(
             title=f"미국 장단기 금리차 10Y-2Y (현재: {current_spread:.2f}%)", 
-            template="plotly_dark", height=300, margin=dict(l=20, r=20, t=40, b=20)
+            template="plotly_dark", 
+            height=300, 
+            margin=dict(l=20, r=20, t=40, b=20)
         )
-        st.plotly_chart(fig_yield, use_container_width=True)
+        st.plotly_chart(fig_yield, use_container_width=True, config=MACRO_CHART_CONFIG)
     else:
         st.info("FRED API 키가 필요합니다.")
 
