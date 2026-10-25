@@ -213,7 +213,6 @@ try:
 except Exception:
     pass
 
-# Secrets가 없을 경우를 대비한 사이드바 백업 입력 지원
 if not fred_api_key:
     fred_api_key = st.sidebar.text_input(
         "FRED API Key", 
@@ -222,7 +221,7 @@ if not fred_api_key:
         help="거시경제 데이터를 불러오려면 FRED API 키를 입력하세요."
     )
 else:
-    st.sidebar.success("🔒 FRED API 자동 연동 완료")
+    st.sidebar.success("🔒 FRED API 보안 연결됨")
 
 st.sidebar.markdown("---")
 st.sidebar.info("⏱️ API 트래픽 제한을 방지하기 위해 데이터는 5분 단위로 자동 캐싱됩니다.")
@@ -320,7 +319,7 @@ def plot_sparkline(ticker, title, period="1mo"):
         plot_bgcolor='rgba(0,0,0,0)',
         paper_bgcolor='rgba(0,0,0,0)',
         showlegend=False,
-        dragmode=False  # 터치 드래그 잠금 (스크롤 끊김 방지)
+        dragmode=False
     )
     return fig
 
@@ -344,7 +343,7 @@ for i, (name, ticker) in enumerate(futures):
 st.divider()
 
 # ==========================================
-# 5. BLOCK 3: BASIS MONITOR (현선물 베이시스 당일 수치)
+# 5. BLOCK 3: BASIS MONITOR (현선물 베이시스 당일 수치 전용)
 # ==========================================
 st.subheader("📉 블록 3: 현선물 베이시스 (실시간 당일 수치)")
 
@@ -361,7 +360,7 @@ if spx_spot and es_fut:
     spx_status = "콘탱고 (정상)" if spx_basis >= 0 else "백워데이션 (경계)"
     with col_b1:
         st.metric(
-            label=f"S&P 500 베이시스 ({spx_status})",
+            label=f"S&P 500 베이시스 [{spx_status}]",
             value=f"{spx_basis:+.2f} pt",
             delta=f"{spx_basis_pct:+.2f}%",
             delta_color="normal" if spx_basis >= 0 else "inverse"
@@ -380,7 +379,7 @@ if ndx_spot and nq_fut:
     ndx_status = "콘탱고 (정상)" if ndx_basis >= 0 else "백워데이션 (경계)"
     with col_b3:
         st.metric(
-            label=f"나스닥 100 베이시스 ({ndx_status})",
+            label=f"나스닥 100 베이시스 [{ndx_status}]",
             value=f"{ndx_basis:+.2f} pt",
             delta=f"{ndx_basis_pct:+.2f}%",
             delta_color="normal" if ndx_basis >= 0 else "inverse"
@@ -423,9 +422,9 @@ for i, (name, ticker, symbol) in enumerate(bonds_assets):
 st.divider()
 
 # ==========================================
-# 7. BLOCK 5: COMMODITIES & SPILLOVER (원자재 및 스프레드)
+# 7. BLOCK 5: COMMODITIES & TERM STRUCTURE
 # ==========================================
-st.subheader("🛢️ 블록 5: 핵심 원자재 및 섹터 스프레드")
+st.subheader("🛢️ 블록 5: 핵심 원자재 및 기간구조 (Term Structure)")
 
 st.markdown("##### 1) 핵심 원자재 선물 실시간 가격")
 comm_cols = st.columns(5)
@@ -448,28 +447,64 @@ for i, (name, ticker, symbol) in enumerate(comm_assets):
 
 st.write("")
 
-st.markdown("##### 2) 원자재 스프레드 및 상대가치 비율")
+st.markdown("##### 2) 원자재 기간구조(기울기) 및 상대가치 비율")
 col3_1, col3_2 = st.columns(2)
 
 with col3_1:
-    bz = fetch_yf_history("BZ=F", "3mo")
-    cl = fetch_yf_history("CL=F", "3mo")
-    if not bz.empty and not cl.empty:
-        energy_spread = (bz - cl).dropna()
-        fig_eng = go.Figure()
-        fig_eng.add_trace(go.Scatter(
-            x=energy_spread.index, y=energy_spread.values, mode='lines', 
-            name="Brent-WTI", line=dict(color='#ab63fa', width=2)
+    # WTI 캘린더 스프레드 프록시: USO(근월물 M1) vs USL(12개월 분산 M6+)
+    uso_hist = fetch_yf_history("USO", "1y")
+    usl_hist = fetch_yf_history("USL", "1y")
+    uso_curr = fetch_yf_current("USO")
+    usl_curr = fetch_yf_current("USL")
+    
+    if not uso_hist.empty and not usl_hist.empty and uso_curr and usl_curr:
+        # 단가 차이에 의한 왜곡을 제거하기 위해 기준시점 정규화(100 기준 상대 수익률 스프레드) 산출
+        uso_norm = (uso_hist / uso_hist.iloc[0]) * 100
+        usl_norm = (usl_hist / usl_hist.iloc[0]) * 100
+        spread_series = uso_norm - usl_norm
+        
+        current_spread_val = spread_series.iloc[-1]
+        prev_spread_val = spread_series.iloc[-2] if len(spread_series) >= 2 else current_spread_val
+        spread_change = current_spread_val - prev_spread_val
+
+        is_backwardation = current_spread_val >= 0
+        status_text = "백워데이션 (실물 공급 부족 / 타이트)" if is_backwardation else "콘탱고 (실물 재고 여유 / 수요 둔화)"
+        status_color = "#00cc96" if is_backwardation else "#ef553b"
+        
+        st.metric(
+            label=f"WTI 기간구조 기울기 [{status_text}]",
+            value=f"{current_spread_val:+.2f} pt",
+            delta=f"{spread_change:+.2f} pt 전일비",
+            delta_color="normal" if is_backwardation else "inverse"
+        )
+        
+        # 0선 기준 면적 차트 시각화
+        fig_oil = go.Figure()
+        fig_oil.add_trace(go.Scatter(
+            x=spread_series.index, 
+            y=spread_series.values, 
+            mode='lines',
+            name="USO - USL 스프레드",
+            line=dict(color=status_color, width=2),
+            fill='tozeroy'
         ))
-        fig_eng.add_hline(y=energy_spread.mean(), line_dash="dot", line_color="gray", annotation_text="3개월 평균선")
-        fig_eng.update_layout(
-            title=f"에너지 스프레드: 브렌트유 - WTI (현재: ${energy_spread.iloc[-1]:.2f})",
+        fig_oil.add_hline(
+            y=0.0, 
+            line_dash="dash", 
+            line_color="rgba(255,255,255,0.7)", 
+            annotation_text="0.0 (수급 중립선)",
+            annotation_position="bottom right"
+        )
+        fig_oil.update_layout(
+            title=dict(text="WTI Crude Oil Calendar Spread Proxy (USO vs USL, 1년)", font=dict(size=12, color='#94a3b8')),
             template="plotly_dark", 
-            height=160, 
-            margin=dict(l=20, r=40, t=40, b=20),
+            height=200, 
+            margin=dict(l=20, r=30, t=30, b=20),
             dragmode=False
         )
-        st.plotly_chart(fig_eng, use_container_width=True, config=TOUCH_SAFE_CONFIG)
+        st.plotly_chart(fig_oil, use_container_width=True, config=TOUCH_SAFE_CONFIG)
+    else:
+        st.info("원유 기간구조(USO/USL) 데이터를 로드 중입니다.")
 
 with col3_2:
     gc = fetch_yf_history("GC=F", "6mo")
@@ -483,7 +518,7 @@ with col3_2:
         fig_metals.update_layout(
             title=f"귀금속 낙수효과: 금 / 팔라듐 비율 (현재: {ratio.iloc[-1]:.2f})",
             template="plotly_dark", 
-            height=160, 
+            height=230, 
             margin=dict(l=20, r=40, t=40, b=20),
             dragmode=False
         )
@@ -581,7 +616,7 @@ selected_days = days_map.get(period_choice, 1825)
 # 정밀 분석을 위해 줌/툴바를 지원하는 인터랙티브 차트 설정
 MACRO_CHART_CONFIG = {
     'displayModeBar': True,
-    'scrollZoom': False,  # 브라우저 스크롤 멈칫거림 방지
+    'scrollZoom': False,
     'displaylogo': False,
     'modeBarButtonsToRemove': ['lasso2d', 'select2d'],
     'responsive': True
