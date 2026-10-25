@@ -346,7 +346,8 @@ if not rsp_hist.empty and not spy_hist.empty:
         is_expanding = curr_ratio >= ma50.iloc[-1] if not ma50.empty else (curr_ratio >= breadth_ratio.iloc[0])
         
         status_label = "시장 건전성 양호 (Breadth 확장)" if is_expanding else "소수 대형주 쏠림 심화 (다이버전스 경계)"
-        status_color = "#00cc96" if is_expanding else "#ef553b"
+        # 라이트/일반 모드에서도 또렷하게 보이는 고대비 컬러
+        status_color = "#059669" if is_expanding else "#dc2626"
         
         b_col1, b_col2 = st.columns([1, 3])
         with b_col1:
@@ -362,18 +363,20 @@ if not rsp_hist.empty and not spy_hist.empty:
             fig_breadth = go.Figure()
             fig_breadth.add_trace(go.Scatter(
                 x=breadth_ratio.index, y=breadth_ratio.values, mode='lines',
-                name="RSP/SPY Ratio", line=dict(color=status_color, width=2)
+                name="RSP/SPY Ratio", line=dict(color=status_color, width=2.5)
             ))
+            # 라이트 모드(흰색 배경)에서도 선명하게 보이는 딥 블루/네이비 대시선
             fig_breadth.add_trace(go.Scatter(
                 x=ma50.index, y=ma50.values, mode='lines',
-                name="50일 이동평균", line=dict(color='rgba(255,255,255,0.6)', dash='dash', width=1.5)
+                name="50일 이동평균", line=dict(color='#2563eb', dash='dash', width=2.2)
             ))
             fig_breadth.update_layout(
-                title=dict(text="S&P 500 Breadth: RSP(동일가중) vs SPY(시총가중) 1년 추이", font=dict(size=12, color='#94a3b8')),
-                template="plotly_dark",
+                title=dict(text="S&P 500 Breadth: RSP(동일가중) vs SPY(시총가중) 1년 추이", font=dict(size=12)),
                 height=180,
                 margin=dict(l=20, r=20, t=30, b=20),
                 dragmode=False,
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
             )
             st.plotly_chart(fig_breadth, use_container_width=True, config=TOUCH_SAFE_CONFIG)
@@ -584,16 +587,17 @@ with col3_1:
         fig_oil.add_hline(
             y=0.0, 
             line_dash="dash", 
-            line_color="rgba(255,255,255,0.7)", 
+            line_color="#64748b", 
             annotation_text="0.0 (수급 중립선)",
             annotation_position="bottom right"
         )
         fig_oil.update_layout(
-            title=dict(text="WTI Crude Oil Calendar Spread Proxy (USO vs USL, 1년)", font=dict(size=12, color='#94a3b8')),
-            template="plotly_dark", 
+            title=dict(text="WTI Crude Oil Calendar Spread Proxy (USO vs USL, 1년)", font=dict(size=12)),
             height=200, 
             margin=dict(l=20, r=30, t=30, b=20),
-            dragmode=False
+            dragmode=False,
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)'
         )
         st.plotly_chart(fig_oil, use_container_width=True, config=TOUCH_SAFE_CONFIG)
     else:
@@ -606,14 +610,15 @@ with col3_2:
         ratio = (gc / pa).dropna()
         ma60 = ratio.rolling(window=60).mean()
         fig_metals = go.Figure()
-        fig_metals.add_trace(go.Scatter(x=ratio.index, y=ratio.values, mode='lines', name="금/팔라듐 비율", line=dict(color='#ffd700')))
-        fig_metals.add_trace(go.Scatter(x=ma60.index, y=ma60.values, mode='lines', name="60일 이동평균", line=dict(color='white', dash='dash')))
+        fig_metals.add_trace(go.Scatter(x=ratio.index, y=ratio.values, mode='lines', name="금/팔라듐 비율", line=dict(color='#d97706', width=2)))
+        fig_metals.add_trace(go.Scatter(x=ma60.index, y=ma60.values, mode='lines', name="60일 이동평균", line=dict(color='#2563eb', dash='dash', width=2)))
         fig_metals.update_layout(
-            title=f"귀금속 낙수효과: 금 / 팔라듐 비율 (현재: {ratio.iloc[-1]:.2f})",
-            template="plotly_dark", 
+            title=dict(text=f"귀금속 낙수효과: 금 / 팔라듐 비율 (현재: {ratio.iloc[-1]:.2f})", font=dict(size=12)),
             height=200, 
             margin=dict(l=20, r=40, t=30, b=20),
-            dragmode=False
+            dragmode=False,
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)'
         )
         st.plotly_chart(fig_metals, use_container_width=True, config=TOUCH_SAFE_CONFIG)
 
@@ -648,24 +653,25 @@ if not hg_hist.empty and not gc_hist.empty:
             # 좌측 축: 구리/금 비율
             fig_cg.add_trace(go.Scatter(
                 x=cg_ratio.index, y=cg_ratio.values, mode='lines',
-                name="구리/금 비율 (좌축)", line=dict(color='#fca311', width=2)
+                name="구리/금 비율 (좌축)", line=dict(color='#d97706', width=2)
             ))
             # 우측 보조축: 미 10년물 국채 금리(^TNX)
             if not tnx_hist.empty:
                 fig_cg.add_trace(go.Scatter(
                     x=tnx_hist.index, y=tnx_hist.values, mode='lines',
-                    name="미 10년물 금리 (우축, %)", line=dict(color='#38bdf8', width=1.5, dash='dot'),
+                    name="미 10년물 금리 (우축, %)", line=dict(color='#0284c7', width=1.8, dash='dot'),
                     yaxis="y2"
                 ))
             
             fig_cg.update_layout(
-                title=dict(text="Copper / Gold Ratio vs US 10Y Yield (1년 동행성 비교)", font=dict(size=12, color='#94a3b8')),
-                template="plotly_dark",
+                title=dict(text="Copper / Gold Ratio vs US 10Y Yield (1년 동행성 비교)", font=dict(size=12)),
                 height=220,
                 margin=dict(l=20, r=40, t=30, b=20),
                 dragmode=False,
-                yaxis=dict(title="Cu/Au × 1,000", tickfont=dict(color='#fca311')),
-                yaxis2=dict(title="10Y Yield (%)", tickfont=dict(color='#38bdf8'), overlaying="y", side="right", showgrid=False),
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                yaxis=dict(title="Cu/Au × 1,000", tickfont=dict(color='#d97706')),
+                yaxis2=dict(title="10Y Yield (%)", tickfont=dict(color='#0284c7'), overlaying="y", side="right", showgrid=False),
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
             )
             st.plotly_chart(fig_cg, use_container_width=True, config=TOUCH_SAFE_CONFIG)
@@ -694,23 +700,24 @@ with col4_1:
         fig_gauge = go.Figure(go.Indicator(
             mode="gauge+number",
             value=divergence,
-            number={'suffix': "%", 'valueformat': "+.3f", 'font': {'size': 20, 'color': '#fca311'}},
-            title={'text': "USDT 테더 괴리율 / 프리미엄", 'font': {'size': 13, 'color': '#94a3b8'}},
+            number={'suffix': "%", 'valueformat': "+.3f", 'font': {'size': 20, 'color': '#d97706'}},
+            title={'text': "USDT 테더 괴리율 / 프리미엄", 'font': {'size': 13}},
             gauge={
-                'axis': {'range': [-1, 1], 'tickwidth': 1, 'tickcolor': "gray"},
-                'bar': {'color': "#fca311", 'thickness': 0.7},
+                'axis': {'range': [-1, 1], 'tickwidth': 1, 'tickcolor': "#64748b"},
+                'bar': {'color': "#d97706", 'thickness': 0.7},
                 'steps': [
-                    {'range': [-1, -0.2], 'color': "#ef553b"}, 
-                    {'range': [-0.2, 0.2], 'color': "rgba(255,255,255,0.08)"}, 
-                    {'range': [0.2, 1], 'color': "#00cc96"}  
+                    {'range': [-1, -0.2], 'color': "#ef4444"}, 
+                    {'range': [-0.2, 0.2], 'color': "rgba(100,116,139,0.15)"}, 
+                    {'range': [0.2, 1], 'color': "#10b981"}  
                 ]
             }
         ))
         fig_gauge.update_layout(
-            template="plotly_dark", 
             height=180, 
             margin=dict(l=15, r=15, t=25, b=15),
-            dragmode=False
+            dragmode=False,
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)'
         )
         st.plotly_chart(fig_gauge, use_container_width=True, config=TOUCH_SAFE_CONFIG)
     else:
@@ -782,14 +789,15 @@ if not net_liq_series.empty:
         fig_liq = go.Figure()
         fig_liq.add_trace(go.Scatter(
             x=net_liq_series.index, y=net_liq_series.values, mode='lines',
-            name="Fed Net Liquidity ($T)", line=dict(color='#06b6d4', width=2),
-            fill='tozeroy', fillcolor='rgba(6, 182, 212, 0.1)'
+            name="Fed Net Liquidity ($T)", line=dict(color='#0284c7', width=2),
+            fill='tozeroy', fillcolor='rgba(2, 132, 199, 0.1)'
         ))
         fig_liq.update_layout(
-            title=dict(text="Federal Reserve Net Liquidity ($ Trillions)", font=dict(size=12, color='#94a3b8')),
-            template="plotly_dark",
+            title=dict(text="Federal Reserve Net Liquidity ($ Trillions)", font=dict(size=12)),
             height=200,
-            margin=dict(l=20, r=20, t=30, b=20)
+            margin=dict(l=20, r=20, t=30, b=20),
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)'
         )
         st.plotly_chart(fig_liq, use_container_width=True, config=MACRO_CHART_CONFIG)
 else:
@@ -808,14 +816,15 @@ with col5_1:
         fig_hy = go.Figure()
         fig_hy.add_trace(go.Scatter(
             x=hy_spread.index, y=hy_spread.values, mode='lines', 
-            name="HY Spread", line=dict(color='#00cc96', width=1.8)
+            name="HY Spread", line=dict(color='#059669', width=2)
         ))
-        fig_hy.add_hline(y=5.0, line_dash="dash", line_color="red", annotation_text="위험 경계선 (5.0%)")
+        fig_hy.add_hline(y=5.0, line_dash="dash", line_color="#dc2626", annotation_text="위험 경계선 (5.0%)")
         fig_hy.update_layout(
-            title=f"미국 하이일드 스프레드 (현재: {current_hy:.2f}%)", 
-            template="plotly_dark", 
+            title=dict(text=f"미국 하이일드 스프레드 (현재: {current_hy:.2f}%)", font=dict(size=12)), 
             height=260, 
-            margin=dict(l=20, r=20, t=35, b=20)
+            margin=dict(l=20, r=20, t=35, b=20),
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)'
         )
         if current_hy >= 5.0:
             st.error(f"⚠️ 하이일드 스프레드 경고: {current_hy:.2f}%")
@@ -834,14 +843,15 @@ with col5_2:
         fig_yield = go.Figure()
         fig_yield.add_trace(go.Scatter(
             x=spread_10_2.index, y=spread_10_2.values, mode='lines', 
-            name="10Y-2Y", line=dict(color='#636efa', width=1.8), fill='tozeroy'
+            name="10Y-2Y", line=dict(color='#4f46e5', width=2), fill='tozeroy'
         ))
-        fig_yield.add_hline(y=0.0, line_width=1.5, line_color="white", annotation_text="역전 기준선")
+        fig_yield.add_hline(y=0.0, line_width=1.5, line_color="#64748b", annotation_text="역전 기준선")
         fig_yield.update_layout(
-            title=f"미국 장단기 금리차 10Y-2Y (현재: {current_spread:.2f}%)", 
-            template="plotly_dark", 
+            title=dict(text=f"미국 장단기 금리차 10Y-2Y (현재: {current_spread:.2f}%)", font=dict(size=12)), 
             height=260, 
-            margin=dict(l=20, r=20, t=35, b=20)
+            margin=dict(l=20, r=20, t=35, b=20),
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)'
         )
         st.plotly_chart(fig_yield, use_container_width=True, config=MACRO_CHART_CONFIG)
     else:
@@ -895,18 +905,19 @@ with v_col2:
             fig_mv = go.Figure()
             fig_mv.add_trace(go.Scatter(
                 x=mv_ratio.index, y=mv_ratio.values, mode='lines',
-                name="MOVE/VIX Ratio", line=dict(color='#e11d48' if is_complacent else '#a855f7', width=2)
+                name="MOVE/VIX Ratio", line=dict(color='#dc2626' if is_complacent else '#7c3aed', width=2)
             ))
             fig_mv.add_hline(
                 y=6.0, line_dash="dash", line_color="#ef4444",
                 annotation_text="방심 임계선 (6.0 pt)", annotation_position="top left"
             )
             fig_mv.update_layout(
-                title=dict(text="ICE BofA MOVE / CBOE VIX Ratio (1년 추이)", font=dict(size=12, color='#94a3b8')),
-                template="plotly_dark",
+                title=dict(text="ICE BofA MOVE / CBOE VIX Ratio (1년 추이)", font=dict(size=12)),
                 height=220,
-                margin=dict(l=20, r=20, t=30, b=20),
-                dragmode=False
+                margin=dict(l=20, r=30, t=30, b=20),
+                dragmode=False,
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)'
             )
             st.plotly_chart(fig_mv, use_container_width=True, config=TOUCH_SAFE_CONFIG)
     else:
