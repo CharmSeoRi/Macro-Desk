@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 import requests
 
@@ -130,7 +131,7 @@ ALL_TICKERS = [
     # FX
     "USDKRW=X", "DX-Y.NYB", "EURUSD=X", "USDJPY=X",
     # 주가지수 & ETF
-    "^GSPC", "^IXIC", "^RUT", "005930.KS", "SPY", "RSP",
+    "^GSPC", "^IXIC", "^NDX", "^RUT", "005930.KS", "SPY", "RSP",
     # 선물
     "ES=F", "NQ=F",
     # 변동성
@@ -295,8 +296,10 @@ def render_basis_card(col, name, fut_s, spot_s):
             st.info(f"{name}: 데이터 준비 중")
 
 col_b1, col_b2, col_b3, col_b4 = st.columns(4)
+# S&P 500: 선물(ES=F) vs 현물(^GSPC)
 render_basis_card(col_b1, "S&P 500 (ES)", extract_series(market_data, "ES=F"), extract_series(market_data, "^GSPC"))
-render_basis_card(col_b2, "나스닥 100 (NQ)", extract_series(market_data, "NQ=F"), extract_series(market_data, "^IXIC"))
+# 나스닥 100: 선물(NQ=F) vs 현물(^NDX) -> 정확한 나스닥 100 지수로 비교
+render_basis_card(col_b2, "나스닥 100 (NQ)", extract_series(market_data, "NQ=F"), extract_series(market_data, "^NDX"))
 render_metric_box(col_b3, "VIX (30일 공포지수)", extract_series(market_data, "^VIX"))
 render_metric_box(col_b4, "VIX1D (1일 초단기 공포)", extract_series(market_data, "^VIX1D"))
 
@@ -369,35 +372,43 @@ with col_com2:
         if len(c_idx2) >= 5:
             cg_ratio = (cu_s.loc[c_idx2] / au_s.loc[c_idx2]) * 1000
             
-            fig_cg = go.Figure()
-            fig_cg.add_trace(go.Scatter(
-                x=cg_ratio.index, 
-                y=cg_ratio.values, 
-                name="Cu/Au × 1,000",
-                line=dict(color="#d97706", width=2)
-            ))
+            # make_subplots를 사용한 정석 듀얼 Y축 구성 (ValueError 원천 차단)
+            fig_cg = make_subplots(specs=[[{"secondary_y": True}]])
+            
+            fig_cg.add_trace(
+                go.Scatter(
+                    x=cg_ratio.index, 
+                    y=cg_ratio.values, 
+                    name="Cu/Au × 1,000",
+                    line=dict(color="#d97706", width=2)
+                ),
+                secondary_y=False
+            )
             
             if not tnx_s.empty:
                 common_tnx = tnx_s.index.intersection(cg_ratio.index)
                 if len(common_tnx) > 0:
-                    fig_cg.add_trace(go.Scatter(
-                        x=common_tnx, 
-                        y=tnx_s.loc[common_tnx].values, 
-                        name="미 10년물 금리 (%)",
-                        line=dict(color="#2563eb", width=1.8, dash="dot"),
-                        yaxis="y2"
-                    ))
+                    fig_cg.add_trace(
+                        go.Scatter(
+                            x=common_tnx, 
+                            y=tnx_s.loc[common_tnx].values, 
+                            name="미 10년물 금리 (%)",
+                            line=dict(color="#2563eb", width=1.8, dash="dot")
+                        ),
+                        secondary_y=True
+                    )
                 
             fig_cg.update_layout(
                 height=260,
                 margin=dict(l=20, r=40, t=10, b=20),
                 plot_bgcolor="rgba(0,0,0,0)",
                 paper_bgcolor="rgba(0,0,0,0)",
-                yaxis=dict(title="Cu/Au Ratio", titlefont=dict(color="#d97706")),
-                yaxis2=dict(title="10Y Yield (%)", titlefont=dict(color="#2563eb"), overlaying="y", side="right"),
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                 dragmode=False
             )
+            fig_cg.update_yaxes(title_text="Cu/Au Ratio", title_font=dict(color="#d97706"), secondary_y=False)
+            fig_cg.update_yaxes(title_text="10Y Yield (%)", title_font=dict(color="#2563eb"), secondary_y=True)
+            
             st.plotly_chart(fig_cg, use_container_width=True, config=PLOTLY_TOUCH_CONFIG)
 
 st.markdown("---")
