@@ -813,6 +813,12 @@ with col5_1:
     hy_spread = fetch_fred_series(fred_api_key, "BAMLH0A0HYM2", days=selected_days)
     if not hy_spread.empty:
         current_hy = hy_spread.iloc[-1]
+        st.markdown(
+            "<div style='font-size:0.75rem; color:#64748b; background:rgba(128,128,128,0.08); padding:4px 8px; border-radius:6px; margin-bottom:6px;'>"
+            "📌 <b>역사적 위기 피크치</b>: '08 금융위기 <b>19.88%</b> | '02 닷컴 <b>11.00%</b> | '20 코로나 <b>10.87%</b> | '16 셰일 <b>8.39%</b> | 평시 위험선 <b>5.00%</b>"
+            "</div>",
+            unsafe_allow_html=True
+        )
         fig_hy = go.Figure()
         fig_hy.add_trace(go.Scatter(
             x=hy_spread.index, y=hy_spread.values, mode='lines', 
